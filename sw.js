@@ -11,7 +11,7 @@
    - ARCHIVOS: todo lo que queremos guardar offline la primera
      vez que se instala el service worker.
    ------------------------------------------------------------ */
-const VERSION = "v1";
+const VERSION = "v2";
 const CACHE_NOMBRE = `bar-la-esquina-${VERSION}`;
 
 const ARCHIVOS = [
