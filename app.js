@@ -1051,4 +1051,509 @@ async function compartirTicket(ticket) {
         if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
             await navigator.clipboard.writeText(texto);
             alert("El detalle de la cuenta se copió al portapapeles.");
-       
+        } else {
+            window.prompt("Copiá el detalle de la cuenta:", texto);
+        }
+    } catch (error) {
+        window.prompt("Copiá el detalle de la cuenta:", texto);
+    }
+}
+
+function mostrarTicket(ticket) {
+    const existente = document.getElementById("modal-ticket");
+    if (existente) existente.remove();
+
+    const dialog = document.createElement("dialog");
+    dialog.id = "modal-ticket";
+    dialog.className = "modal-ticket";
+
+    const titulo = document.createElement("h3");
+    titulo.textContent = "🧾 Ticket";
+
+    const encabezado = document.createElement("p");
+    encabezado.className = "ticket__encabezado";
+    encabezado.innerHTML =
+        `<strong>Bar La Esquina</strong><br>` +
+        `Mesa ${ticket.mesaNumero} · Pedido #${ticket.pedidoId}<br>` +
+        `Apertura: ${formatearHora(ticket.apertura)} · Cierre: ${formatearHora(ticket.cierre)}`;
+
+    const tabla = document.createElement("table");
+    tabla.className = "ticket__tabla";
+
+    const thead = document.createElement("thead");
+    thead.innerHTML = `<tr><th>Cant.</th><th>Producto</th><th>Subtotal</th></tr>`;
+    tabla.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    ticket.items.forEach((item) => {
+        const tr = document.createElement("tr");
+        const tdCant = document.createElement("td");
+        tdCant.textContent = item.cantidad;
+        const tdNombre = document.createElement("td");
+        tdNombre.textContent = item.nombre;
+        const tdSubtotal = document.createElement("td");
+        tdSubtotal.textContent = formatearPrecio(item.precioUnitario * item.cantidad);
+        tr.append(tdCant, tdNombre, tdSubtotal);
+        tbody.appendChild(tr);
+    });
+    tabla.appendChild(tbody);
+
+    const total = document.createElement("p");
+    total.className = "ticket__total";
+    total.innerHTML = `<span>Total</span><strong>${formatearPrecio(ticket.total)}</strong>`;
+
+    const pago = document.createElement("p");
+    pago.className = "ticket__pago";
+    pago.innerHTML = `<span>Forma de pago</span><strong>${ticket.formaPago}</strong>`;
+
+    const acciones = document.createElement("div");
+    acciones.className = "ticket__acciones";
+
+    const btnCompartir = document.createElement("button");
+    btnCompartir.type = "button";
+    btnCompartir.className = "btn-compartir";
+    btnCompartir.textContent = "📤 Compartir";
+    btnCompartir.addEventListener("click", () => compartirTicket(ticket));
+
+    const btnCerrar = document.createElement("button");
+    btnCerrar.type = "button";
+    btnCerrar.textContent = "Cerrar";
+    btnCerrar.addEventListener("click", () => dialog.close());
+
+    acciones.append(btnCompartir, btnCerrar);
+
+    dialog.append(titulo, encabezado, tabla, total, pago, acciones);
+    document.body.appendChild(dialog);
+
+    if (typeof dialog.showModal === "function") {
+        dialog.showModal();
+    } else {
+        dialog.setAttribute("open", "");
+    }
+
+    dialog.addEventListener("close", () => dialog.remove());
+}
+
+
+/* ------------------------------------------------------------
+   14) CAJA DEL DÍA
+   ------------------------------------------------------------ */
+
+function renderizarCaja() {
+    const tbody = document.querySelector("#tabla-caja tbody");
+    if (!tbody) return;
+
+    const cerradosHoy = pedidos
+        .filter((p) => p.estado === "cerrado" && esDeHoy(p.cierre))
+        .sort((a, b) => new Date(a.cierre) - new Date(b.cierre));
+
+    tbody.innerHTML = "";
+
+    if (cerradosHoy.length === 0) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 4;
+        td.className = "tabla-vacia";
+        td.textContent = "Todavía no hay pedidos cerrados hoy.";
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        renderizarTotalesCaja([]);
+        return;
+    }
+
+    cerradosHoy.forEach((pedido) => {
+        const mesa = buscarMesaPorId(pedido.mesaId);
+
+        const tr = document.createElement("tr");
+
+        const tdHora = document.createElement("td");
+        tdHora.textContent = formatearHora(pedido.cierre);
+
+        const tdMesa = document.createElement("td");
+        tdMesa.textContent = mesa ? `Mesa ${mesa.numero}` : `Mesa #${pedido.mesaId}`;
+
+        const tdPago = document.createElement("td");
+        tdPago.textContent = pedido.formaPago || "—";
+
+        const tdTotal = document.createElement("td");
+        tdTotal.textContent = formatearPrecio(pedido.total);
+
+        tr.append(tdHora, tdMesa, tdPago, tdTotal);
+        tbody.appendChild(tr);
+    });
+
+    renderizarTotalesCaja(cerradosHoy);
+}
+
+function renderizarTotalesCaja(cerradosHoy) {
+    const tabla = document.getElementById("tabla-caja");
+    if (!tabla) return;
+
+    const tfootPrevio = tabla.querySelector("tfoot");
+    if (tfootPrevio) tfootPrevio.remove();
+
+    const tfoot = document.createElement("tfoot");
+    tfoot.className = "tabla-caja__tfoot";
+
+    FORMAS_PAGO.forEach((forma) => {
+        const subtotal = cerradosHoy
+            .filter((p) => p.formaPago === forma)
+            .reduce((acc, p) => acc + p.total, 0);
+
+        const tr = document.createElement("tr");
+        const tdEtiqueta = document.createElement("td");
+        tdEtiqueta.colSpan = 3;
+        tdEtiqueta.textContent = `Subtotal ${forma}`;
+        const tdMonto = document.createElement("td");
+        tdMonto.textContent = formatearPrecio(subtotal);
+
+        tr.append(tdEtiqueta, tdMonto);
+        tfoot.appendChild(tr);
+    });
+
+    const totalRecaudado = cerradosHoy.reduce((acc, p) => acc + p.total, 0);
+
+    const trTotal = document.createElement("tr");
+    trTotal.className = "tabla-caja__total";
+    const tdEtiquetaTotal = document.createElement("td");
+    tdEtiquetaTotal.colSpan = 3;
+    tdEtiquetaTotal.textContent = "Total recaudado";
+    const tdMontoTotal = document.createElement("td");
+    tdMontoTotal.textContent = formatearPrecio(totalRecaudado);
+
+    trTotal.append(tdEtiquetaTotal, tdMontoTotal);
+    tfoot.appendChild(trTotal);
+
+    tabla.appendChild(tfoot);
+}
+
+
+/* ------------------------------------------------------------
+   15) EXPORTAR / IMPORTAR DATOS
+   ------------------------------------------------------------ */
+
+async function exportarDatos() {
+    const datos = { productos, mesas, pedidos };
+    const contenido = JSON.stringify(datos, null, 2);
+    const nombreArchivo = "bar.json";
+
+    // 1) Intento compartir como archivo si el navegador lo permite
+    // (celulares con Web Share API nivel 2 + File API)
+    if (
+        typeof navigator !== "undefined" &&
+        typeof navigator.canShare === "function" &&
+        typeof navigator.share === "function" &&
+        typeof File === "function"
+    ) {
+        try {
+            const archivo = new File([contenido], nombreArchivo, {
+                type: "application/json"
+            });
+
+            if (navigator.canShare({ files: [archivo] })) {
+                await navigator.share({
+                    files: [archivo],
+                    title: "Bar La Esquina · Datos",
+                    text: "Copia de seguridad de los datos del bar."
+                });
+                return; // Compartido con éxito, no descargamos
+            }
+        } catch (error) {
+            // Si el usuario cancela, no hacemos nada más
+            if (error && error.name === "AbortError") return;
+            // Cualquier otro error: caemos a la descarga clásica
+            console.warn("No se pudo compartir el archivo, se descarga:", error);
+        }
+    }
+
+    // 2) Fallback: descarga clásica con Blob + enlace temporal
+    const blob = new Blob([contenido], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const enlace = document.createElement("a");
+    enlace.href = url;
+    enlace.download = nombreArchivo;
+    enlace.style.display = "none";
+
+    document.body.appendChild(enlace);
+    enlace.click();
+    document.body.removeChild(enlace);
+
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function validarDatosImportados(datos) {
+    if (datos === null || typeof datos !== "object" || Array.isArray(datos)) {
+        return { ok: false, motivo: "El archivo no contiene un objeto JSON válido." };
+    }
+
+    const listas = ["productos", "mesas", "pedidos"];
+
+    for (const clave of listas) {
+        if (!(clave in datos)) {
+            return { ok: false, motivo: `Falta la lista "${clave}" en el archivo.` };
+        }
+        if (!Array.isArray(datos[clave])) {
+            return { ok: false, motivo: `La propiedad "${clave}" debe ser un array.` };
+        }
+    }
+
+    return { ok: true };
+}
+
+function aplicarDatosImportados(datos) {
+    productos = datos.productos;
+    mesas = datos.mesas;
+    pedidos = datos.pedidos;
+
+    idProductoEnEdicion = null;
+    idPedidoEnPanel = null;
+    const form = document.getElementById("form-producto");
+    if (form) form.reset();
+    const btnAgregar = document.getElementById("btn-agregar-producto");
+    if (btnAgregar) btnAgregar.textContent = "Agregar producto";
+
+    guardarDatos();
+
+    renderizarCarta();
+    renderizarMesas();
+    limpiarPanelPedido();
+    renderizarCaja();
+}
+
+function manejarImportacion(evento) {
+    const input = evento.target;
+    const archivo = input.files && input.files[0];
+
+    input.value = "";
+
+    if (!archivo) return;
+
+    const lector = new FileReader();
+
+    lector.onerror = () => {
+        alert("No se pudo leer el archivo. Intentá de nuevo.");
+    };
+
+    lector.onload = () => {
+        let datos;
+        try {
+            datos = JSON.parse(lector.result);
+        } catch (error) {
+            alert("El archivo no es un JSON válido. No se modificó ningún dato.");
+            return;
+        }
+
+        const validacion = validarDatosImportados(datos);
+        if (!validacion.ok) {
+            alert(`Archivo inválido: ${validacion.motivo}\nNo se modificó ningún dato.`);
+            return;
+        }
+
+        const confirmado = confirm(
+            "¿Reemplazar todos los datos actuales con los del archivo?\n" +
+            "Esta acción no se puede deshacer."
+        );
+        if (!confirmado) return;
+
+        aplicarDatosImportados(datos);
+        alert("Datos importados correctamente.");
+    };
+
+    lector.readAsText(archivo);
+}
+
+function inicializarExportImport() {
+    const btnExportar = document.getElementById("btn-exportar");
+    const btnImportar = document.getElementById("btn-importar");
+
+    if (btnExportar) {
+        btnExportar.addEventListener("click", exportarDatos);
+    }
+
+    if (btnImportar) {
+        const inputFile = document.createElement("input");
+        inputFile.type = "file";
+        inputFile.accept = "application/json,.json";
+        inputFile.id = "input-importar-archivo";
+        inputFile.style.display = "none";
+        inputFile.addEventListener("change", manejarImportacion);
+        document.body.appendChild(inputFile);
+
+        btnImportar.addEventListener("click", () => inputFile.click());
+    }
+}
+
+
+/* ------------------------------------------------------------
+   16) AVISO DE CONEXIÓN
+   Muestra un banner discreto en la parte de arriba cuando el
+   dispositivo pierde internet y lo oculta cuando vuelve.
+   Los datos se siguen guardando en localStorage igual.
+   ------------------------------------------------------------ */
+
+/**
+ * Crea (si no existe) el contenedor del aviso de conexión.
+ * @returns {HTMLElement}
+ */
+function obtenerAvisoConexion() {
+    let aviso = document.getElementById("aviso-conexion");
+    if (aviso) return aviso;
+
+    aviso = document.createElement("div");
+    aviso.id = "aviso-conexion";
+    aviso.className = "aviso-conexion";
+    aviso.setAttribute("role", "status");
+    aviso.setAttribute("aria-live", "polite");
+    aviso.textContent = "📶 Sin conexión: tus datos se siguen guardando en este celular";
+
+    document.body.insertBefore(aviso, document.body.firstChild);
+    return aviso;
+}
+
+/**
+ * Muestra u oculta el aviso según el estado de conexión.
+ * @param {boolean} enLinea - true si hay internet, false si no
+ */
+function actualizarAvisoConexion(enLinea) {
+    const aviso = obtenerAvisoConexion();
+    if (enLinea) {
+        aviso.classList.remove("aviso-conexion--visible");
+    } else {
+        aviso.classList.add("aviso-conexion--visible");
+    }
+}
+
+/**
+ * Conecta el aviso con navigator.onLine y los eventos online/offline.
+ */
+function inicializarAvisoConexion() {
+    // Estado inicial (al abrir la app)
+    actualizarAvisoConexion(navigator.onLine);
+
+    // Cuando se recupera la conexión
+    window.addEventListener("online", () => actualizarAvisoConexion(true));
+
+    // Cuando se pierde la conexión
+    window.addEventListener("offline", () => actualizarAvisoConexion(false));
+}
+
+
+/* ------------------------------------------------------------
+   17) AVISO DE NUEVA VERSIÓN (SERVICE WORKER)
+   Cuando un service worker nuevo se instala y está esperando
+   para tomar el control, mostramos un aviso pidiendo cerrar y
+   volver a abrir la app para que los cambios se apliquen.
+   ------------------------------------------------------------ */
+
+/**
+ * Muestra un aviso fijo informando que hay una versión nueva.
+ * Usa sessionStorage para no repetirlo en cada recarga dentro
+ * de la misma sesión de pestaña.
+ */
+function mostrarAvisoNuevaVersion() {
+    const CLAVE_AVISO = "bar-aviso-version";
+    if (sessionStorage.getItem(CLAVE_AVISO) === "mostrado") return;
+    sessionStorage.setItem(CLAVE_AVISO, "mostrado");
+
+    const aviso = document.createElement("div");
+    aviso.id = "aviso-nueva-version";
+    aviso.className = "aviso-nueva-version";
+    aviso.setAttribute("role", "status");
+    aviso.setAttribute("aria-live", "polite");
+
+    const texto = document.createElement("span");
+    texto.textContent = "✨ Hay una versión nueva: cerrá y volvé a abrir la app.";
+
+    const btnCerrar = document.createElement("button");
+    btnCerrar.type = "button";
+    btnCerrar.className = "aviso-nueva-version__cerrar";
+    btnCerrar.setAttribute("aria-label", "Cerrar aviso");
+    btnCerrar.textContent = "✕";
+    btnCerrar.addEventListener("click", () => aviso.remove());
+
+    aviso.append(texto, btnCerrar);
+    document.body.appendChild(aviso);
+
+    // Auto-ocultar a los 15 segundos por si el usuario lo ignora
+    setTimeout(() => {
+        if (document.body.contains(aviso)) {
+            aviso.remove();
+        }
+    }, 15000);
+}
+
+
+/* ------------------------------------------------------------
+   18) REGISTRO DEL SERVICE WORKER + DETECCIÓN DE NUEVA VERSIÓN
+   Solo si el navegador lo soporta. Se registra "./sw.js"
+   relativo al index.html, así funciona dentro de subcarpetas.
+   ------------------------------------------------------------ */
+
+function inicializarServiceWorker() {
+    if (!("serviceWorker" in navigator)) return;
+
+    window.addEventListener("load", () => {
+        navigator.serviceWorker
+            .register("./sw.js")
+            .then((registro) => {
+                // Caso 1: ya hay un SW esperando (el usuario volvió a abrir
+                // la app y el SW nuevo terminó de instalarse en la sesión
+                // anterior pero todavía no tomó el control).
+                if (registro.waiting) {
+                    mostrarAvisoNuevaVersion();
+                }
+
+                // Caso 2: se detecta un SW nuevo instalándose mientras la
+                // app está abierta.
+                registro.addEventListener("updatefound", () => {
+                    const nuevoSW = registro.installing;
+                    if (!nuevoSW) return;
+
+                    nuevoSW.addEventListener("statechange", () => {
+                        // "installed" + hay un controller = hay versión previa
+                        // controlando y este nuevo está listo para reemplazarla.
+                        if (
+                            nuevoSW.state === "installed" &&
+                            navigator.serviceWorker.controller
+                        ) {
+                            mostrarAvisoNuevaVersion();
+                        }
+                    });
+                });
+            })
+            .catch((error) => {
+                console.error("No se pudo registrar el SW:", error);
+            });
+    });
+}
+
+
+/* ------------------------------------------------------------
+   19) INICIALIZACIÓN
+   ------------------------------------------------------------ */
+
+function inicializarSalon() {
+    renderizarMesas();
+    limpiarPanelPedido();
+}
+
+function inicializarCaja() {
+    renderizarCaja();
+}
+
+
+/* ------------------------------------------------------------
+   20) ARRANQUE
+   ------------------------------------------------------------ */
+
+document.addEventListener("DOMContentLoaded", () => {
+    cargarDatos();
+    inicializarNavegacion();
+    inicializarCarta();
+    inicializarSalon();
+    inicializarCaja();
+    inicializarExportImport();
+    inicializarAvisoConexion();
+    inicializarServiceWorker();
+    mostrarSeccion("seccion-salon");
+});
