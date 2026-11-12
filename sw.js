@@ -5,13 +5,13 @@
 
 /* ------------------------------------------------------------
    1) CONSTANTES
-   - VERSION: cambiarla (v2, v3...) fuerza a crear una caché
+   - VERSION: cambiarla (v4, v5...) fuerza a crear una caché
      nueva y a borrar las anteriores en el próximo "activate".
    - CACHE_NOMBRE: nombre único de la caché de esta versión.
    - ARCHIVOS: todo lo que queremos guardar offline la primera
      vez que se instala el service worker.
    ------------------------------------------------------------ */
-const VERSION = "v5";
+const VERSION = "v4";
 const CACHE_NOMBRE = `bar-la-esquina-${VERSION}`;
 
 const ARCHIVOS = [
@@ -42,6 +42,11 @@ self.addEventListener("install", (evento) => {
             return cache.addAll(ARCHIVOS);
         })
     );
+
+    // skipWaiting: hace que este SW nuevo tome el control apenas
+    // termine de instalarse, sin esperar a que se cierren todas
+    // las pestañas con el SW viejo.
+    self.skipWaiting();
 });
 
 
@@ -64,6 +69,11 @@ self.addEventListener("activate", (evento) => {
             );
         })
     );
+
+    // clients.claim: toma el control de las pestañas que ya están
+    // abiertas con el SW viejo, sin esperar a que el usuario las
+    // cierre y vuelva a abrir.
+    self.clients.claim();
 });
 
 
@@ -79,6 +89,12 @@ self.addEventListener("fetch", (evento) => {
     // Ignoramos métodos que no sean GET (POST, PUT, etc.).
     // Solo tiene sentido cachear lecturas.
     if (evento.request.method !== "GET") return;
+
+    // Ignoramos requests a otros orígenes (por ejemplo, Google Fonts):
+    // no queremos cachear cosas que no controlamos y que pueden
+    // cambiar sin aviso.
+    const url = new URL(evento.request.url);
+    if (url.origin !== self.location.origin) return;
 
     evento.respondWith(
         caches.match(evento.request).then((respuestaCache) => {

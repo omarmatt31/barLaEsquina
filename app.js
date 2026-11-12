@@ -1538,31 +1538,47 @@ function mostrarAvisoNuevaVersion() {
    18) REGISTRO DEL SERVICE WORKER + DETECCIÓN DE NUEVA VERSIÓN
    Solo si el navegador lo soporta. Se registra "./sw.js"
    relativo al index.html, así funciona dentro de subcarpetas.
+
+   Con skipWaiting() + clients.claim() en sw.js, el SW nuevo
+   toma el control apenas se instala. Acá hacemos 3 cosas:
+   - registro.update(): forzar chequeo de sw.js en cada carga
+     (sin esto, el navegador puede tardar 24h en detectarlo).
+   - updatefound + statechange: mostrar el cartel cuando hay
+     una versión nueva lista para reemplazar a la actual.
+   - controllerchange: recargar la página cuando el SW nuevo
+     toma el control, para que se apliquen los cambios.
    ------------------------------------------------------------ */
 
 function inicializarServiceWorker() {
     if (!("serviceWorker" in navigator)) return;
 
+    // Flag para no recargar más de una vez (controllerchange
+    // puede dispararse varias veces en algunos navegadores).
+    let recargaHecha = false;
+
     window.addEventListener("load", () => {
         navigator.serviceWorker
             .register("./sw.js")
             .then((registro) => {
-                // Caso 1: ya hay un SW esperando (el usuario volvió a abrir
-                // la app y el SW nuevo terminó de instalarse en la sesión
-                // anterior pero todavía no tomó el control).
+                // Forzar chequeo de actualización en cada carga.
+                // Si sw.js cambió en el servidor, esto lo detecta
+                // de inmediato, sin esperar 24h.
+                registro.update();
+
+                // Caso 1: ya hay un SW esperando (raro con
+                // skipWaiting, pero puede pasar en la primera
+                // instalación tras un update manual).
                 if (registro.waiting) {
                     mostrarAvisoNuevaVersion();
                 }
 
-                // Caso 2: se detecta un SW nuevo instalándose mientras la
-                // app está abierta.
+                // Caso 2: se detecta un SW nuevo instalándose
+                // mientras la app está abierta.
                 registro.addEventListener("updatefound", () => {
                     const nuevoSW = registro.installing;
                     if (!nuevoSW) return;
 
                     nuevoSW.addEventListener("statechange", () => {
-                        // "installed" + hay un controller = hay versión previa
-                        // controlando y este nuevo está listo para reemplazarla.
                         if (
                             nuevoSW.state === "installed" &&
                             navigator.serviceWorker.controller
@@ -1575,6 +1591,18 @@ function inicializarServiceWorker() {
             .catch((error) => {
                 console.error("No se pudo registrar el SW:", error);
             });
+
+        // Cuando el SW nuevo toma el control (gracias a
+        // clients.claim), recargamos una vez para que la
+        // página use los archivos nuevos de la caché nueva.
+        navigator.serviceWorker.addEventListener("controllerchange", () => {
+            if (recargaHecha) return;
+            recargaHecha = true;
+
+            // Le damos 800ms al cartel de "nueva versión" para
+            // que el usuario alcance a leerlo antes de recargar.
+            setTimeout(() => window.location.reload(), 800);
+        });
     });
 }
 
