@@ -53,10 +53,6 @@ function formatearHora(isoString) {
     return fecha.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
 }
 
-/**
- * Vibra el dispositivo 50 ms si la API está disponible.
- * Silencioso si el navegador no la soporta.
- */
 function vibrarAlAgregar() {
     if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
         try {
@@ -672,6 +668,7 @@ function crearFormularioAgregarItem() {
     cantidad.name = "cantidad";
     cantidad.min = "1";
     cantidad.value = "1";
+    cantidad.inputMode = "numeric";
     cantidad.required = true;
 
     const boton = document.createElement("button");
@@ -778,7 +775,6 @@ function manejarSubmitAgregarItem(evento) {
         });
     }
 
-    // Vibración corta solo si el navegador la soporta (típicamente móvil)
     vibrarAlAgregar();
 
     actualizarTotalPedido(pedido);
@@ -1017,11 +1013,6 @@ function limpiarPanelPedido() {
     panel.appendChild(mensaje);
 }
 
-/**
- * Arma el ticket en texto plano, listo para compartir.
- * @param {object} ticket
- * @returns {string}
- */
 function generarTextoCompartirTicket(ticket) {
     const lineas = [];
     lineas.push("🧾 Bar La Esquina");
@@ -1040,11 +1031,6 @@ function generarTextoCompartirTicket(ticket) {
     return lineas.join("\n");
 }
 
-/**
- * Comparte el ticket vía navigator.share si está disponible.
- * Fallback: copia al portapapeles.
- * @param {object} ticket
- */
 async function compartirTicket(ticket) {
     const texto = generarTextoCompartirTicket(ticket);
     const datosCompartir = {
@@ -1057,357 +1043,12 @@ async function compartirTicket(ticket) {
             await navigator.share(datosCompartir);
             return;
         } catch (error) {
-            // AbortError: el usuario canceló. No hacemos nada.
             if (error && error.name === "AbortError") return;
-            // Otro error (p. ej. permiso): caemos al fallback.
         }
     }
 
-    // Fallback: copiar al portapapeles
     try {
         if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
             await navigator.clipboard.writeText(texto);
             alert("El detalle de la cuenta se copió al portapapeles.");
-        } else {
-            // Último recurso: prompt para que el usuario copie manualmente
-            window.prompt("Copiá el detalle de la cuenta:", texto);
-        }
-    } catch (error) {
-        window.prompt("Copiá el detalle de la cuenta:", texto);
-    }
-}
-
-function mostrarTicket(ticket) {
-    const existente = document.getElementById("modal-ticket");
-    if (existente) existente.remove();
-
-    const dialog = document.createElement("dialog");
-    dialog.id = "modal-ticket";
-    dialog.className = "modal-ticket";
-
-    const titulo = document.createElement("h3");
-    titulo.textContent = "🧾 Ticket";
-
-    const encabezado = document.createElement("p");
-    encabezado.className = "ticket__encabezado";
-    encabezado.innerHTML =
-        `<strong>Bar La Esquina</strong><br>` +
-        `Mesa ${ticket.mesaNumero} · Pedido #${ticket.pedidoId}<br>` +
-        `Apertura: ${formatearHora(ticket.apertura)} · Cierre: ${formatearHora(ticket.cierre)}`;
-
-    const tabla = document.createElement("table");
-    tabla.className = "ticket__tabla";
-
-    const thead = document.createElement("thead");
-    thead.innerHTML = `<tr><th>Cant.</th><th>Producto</th><th>Subtotal</th></tr>`;
-    tabla.appendChild(thead);
-
-    const tbody = document.createElement("tbody");
-    ticket.items.forEach((item) => {
-        const tr = document.createElement("tr");
-        const tdCant = document.createElement("td");
-        tdCant.textContent = item.cantidad;
-        const tdNombre = document.createElement("td");
-        tdNombre.textContent = item.nombre;
-        const tdSubtotal = document.createElement("td");
-        tdSubtotal.textContent = formatearPrecio(item.precioUnitario * item.cantidad);
-        tr.append(tdCant, tdNombre, tdSubtotal);
-        tbody.appendChild(tr);
-    });
-    tabla.appendChild(tbody);
-
-    const total = document.createElement("p");
-    total.className = "ticket__total";
-    total.innerHTML = `<span>Total</span><strong>${formatearPrecio(ticket.total)}</strong>`;
-
-    const pago = document.createElement("p");
-    pago.className = "ticket__pago";
-    pago.innerHTML = `<span>Forma de pago</span><strong>${ticket.formaPago}</strong>`;
-
-    const acciones = document.createElement("div");
-    acciones.className = "ticket__acciones";
-
-    const btnCompartir = document.createElement("button");
-    btnCompartir.type = "button";
-    btnCompartir.className = "btn-compartir";
-    btnCompartir.textContent = "📤 Compartir";
-    btnCompartir.addEventListener("click", () => compartirTicket(ticket));
-
-    const btnCerrar = document.createElement("button");
-    btnCerrar.type = "button";
-    btnCerrar.textContent = "Cerrar";
-    btnCerrar.addEventListener("click", () => dialog.close());
-
-    acciones.append(btnCompartir, btnCerrar);
-
-    dialog.append(titulo, encabezado, tabla, total, pago, acciones);
-    document.body.appendChild(dialog);
-
-    if (typeof dialog.showModal === "function") {
-        dialog.showModal();
-    } else {
-        dialog.setAttribute("open", "");
-    }
-
-    dialog.addEventListener("close", () => dialog.remove());
-}
-
-
-/* ------------------------------------------------------------
-   14) CAJA DEL DÍA
-   ------------------------------------------------------------ */
-
-function renderizarCaja() {
-    const tbody = document.querySelector("#tabla-caja tbody");
-    if (!tbody) return;
-
-    const cerradosHoy = pedidos
-        .filter((p) => p.estado === "cerrado" && esDeHoy(p.cierre))
-        .sort((a, b) => new Date(a.cierre) - new Date(b.cierre));
-
-    tbody.innerHTML = "";
-
-    if (cerradosHoy.length === 0) {
-        const tr = document.createElement("tr");
-        const td = document.createElement("td");
-        td.colSpan = 4;
-        td.className = "tabla-vacia";
-        td.textContent = "Todavía no hay pedidos cerrados hoy.";
-        tr.appendChild(td);
-        tbody.appendChild(tr);
-        renderizarTotalesCaja([]);
-        return;
-    }
-
-    cerradosHoy.forEach((pedido) => {
-        const mesa = buscarMesaPorId(pedido.mesaId);
-
-        const tr = document.createElement("tr");
-
-        const tdHora = document.createElement("td");
-        tdHora.textContent = formatearHora(pedido.cierre);
-
-        const tdMesa = document.createElement("td");
-        tdMesa.textContent = mesa ? `Mesa ${mesa.numero}` : `Mesa #${pedido.mesaId}`;
-
-        const tdPago = document.createElement("td");
-        tdPago.textContent = pedido.formaPago || "—";
-
-        const tdTotal = document.createElement("td");
-        tdTotal.textContent = formatearPrecio(pedido.total);
-
-        tr.append(tdHora, tdMesa, tdPago, tdTotal);
-        tbody.appendChild(tr);
-    });
-
-    renderizarTotalesCaja(cerradosHoy);
-}
-
-function renderizarTotalesCaja(cerradosHoy) {
-    const tabla = document.getElementById("tabla-caja");
-    if (!tabla) return;
-
-    const tfootPrevio = tabla.querySelector("tfoot");
-    if (tfootPrevio) tfootPrevio.remove();
-
-    const tfoot = document.createElement("tfoot");
-    tfoot.className = "tabla-caja__tfoot";
-
-    FORMAS_PAGO.forEach((forma) => {
-        const subtotal = cerradosHoy
-            .filter((p) => p.formaPago === forma)
-            .reduce((acc, p) => acc + p.total, 0);
-
-        const tr = document.createElement("tr");
-        const tdEtiqueta = document.createElement("td");
-        tdEtiqueta.colSpan = 3;
-        tdEtiqueta.textContent = `Subtotal ${forma}`;
-        const tdMonto = document.createElement("td");
-        tdMonto.textContent = formatearPrecio(subtotal);
-
-        tr.append(tdEtiqueta, tdMonto);
-        tfoot.appendChild(tr);
-    });
-
-    const totalRecaudado = cerradosHoy.reduce((acc, p) => acc + p.total, 0);
-
-    const trTotal = document.createElement("tr");
-    trTotal.className = "tabla-caja__total";
-    const tdEtiquetaTotal = document.createElement("td");
-    tdEtiquetaTotal.colSpan = 3;
-    tdEtiquetaTotal.textContent = "Total recaudado";
-    const tdMontoTotal = document.createElement("td");
-    tdMontoTotal.textContent = formatearPrecio(totalRecaudado);
-
-    trTotal.append(tdEtiquetaTotal, tdMontoTotal);
-    tfoot.appendChild(trTotal);
-
-    tabla.appendChild(tfoot);
-}
-
-
-/* ------------------------------------------------------------
-   15) EXPORTAR / IMPORTAR DATOS
-   ------------------------------------------------------------ */
-
-function exportarDatos() {
-    const datos = { productos, mesas, pedidos };
-    const contenido = JSON.stringify(datos, null, 2);
-    const blob = new Blob([contenido], { type: "application/json" });
-
-    const url = URL.createObjectURL(blob);
-    const enlace = document.createElement("a");
-    enlace.href = url;
-    enlace.download = "bar.json";
-    enlace.style.display = "none";
-
-    document.body.appendChild(enlace);
-    enlace.click();
-    document.body.removeChild(enlace);
-
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function validarDatosImportados(datos) {
-    if (datos === null || typeof datos !== "object" || Array.isArray(datos)) {
-        return { ok: false, motivo: "El archivo no contiene un objeto JSON válido." };
-    }
-
-    const listas = ["productos", "mesas", "pedidos"];
-
-    for (const clave of listas) {
-        if (!(clave in datos)) {
-            return { ok: false, motivo: `Falta la lista "${clave}" en el archivo.` };
-        }
-        if (!Array.isArray(datos[clave])) {
-            return { ok: false, motivo: `La propiedad "${clave}" debe ser un array.` };
-        }
-    }
-
-    return { ok: true };
-}
-
-function aplicarDatosImportados(datos) {
-    productos = datos.productos;
-    mesas = datos.mesas;
-    pedidos = datos.pedidos;
-
-    idProductoEnEdicion = null;
-    idPedidoEnPanel = null;
-    const form = document.getElementById("form-producto");
-    if (form) form.reset();
-    const btnAgregar = document.getElementById("btn-agregar-producto");
-    if (btnAgregar) btnAgregar.textContent = "Agregar producto";
-
-    guardarDatos();
-
-    renderizarCarta();
-    renderizarMesas();
-    limpiarPanelPedido();
-    renderizarCaja();
-}
-
-function manejarImportacion(evento) {
-    const input = evento.target;
-    const archivo = input.files && input.files[0];
-
-    input.value = "";
-
-    if (!archivo) return;
-
-    const lector = new FileReader();
-
-    lector.onerror = () => {
-        alert("No se pudo leer el archivo. Intentá de nuevo.");
-    };
-
-    lector.onload = () => {
-        let datos;
-        try {
-            datos = JSON.parse(lector.result);
-        } catch (error) {
-            alert("El archivo no es un JSON válido. No se modificó ningún dato.");
-            return;
-        }
-
-        const validacion = validarDatosImportados(datos);
-        if (!validacion.ok) {
-            alert(`Archivo inválido: ${validacion.motivo}\nNo se modificó ningún dato.`);
-            return;
-        }
-
-        const confirmado = confirm(
-            "¿Reemplazar todos los datos actuales con los del archivo?\n" +
-            "Esta acción no se puede deshacer."
-        );
-        if (!confirmado) return;
-
-        aplicarDatosImportados(datos);
-        alert("Datos importados correctamente.");
-    };
-
-    lector.readAsText(archivo);
-}
-
-function inicializarExportImport() {
-    const btnExportar = document.getElementById("btn-exportar");
-    const btnImportar = document.getElementById("btn-importar");
-
-    if (btnExportar) {
-        btnExportar.addEventListener("click", exportarDatos);
-    }
-
-    if (btnImportar) {
-        const inputFile = document.createElement("input");
-        inputFile.type = "file";
-        inputFile.accept = "application/json,.json";
-        inputFile.id = "input-importar-archivo";
-        inputFile.style.display = "none";
-        inputFile.addEventListener("change", manejarImportacion);
-        document.body.appendChild(inputFile);
-
-        btnImportar.addEventListener("click", () => inputFile.click());
-    }
-}
-
-
-/* ------------------------------------------------------------
-   16) INICIALIZACIÓN
-   ------------------------------------------------------------ */
-
-function inicializarSalon() {
-    renderizarMesas();
-    limpiarPanelPedido();
-}
-
-function inicializarCaja() {
-    renderizarCaja();
-}
-
-
-/* ------------------------------------------------------------
-   17) ARRANQUE
-   ------------------------------------------------------------ */
-
-document.addEventListener("DOMContentLoaded", () => {
-    cargarDatos();
-    inicializarNavegacion();
-    inicializarCarta();
-    inicializarSalon();
-    inicializarCaja();
-    inicializarExportImport();
-    mostrarSeccion("seccion-salon");
-});
-
-/* ------------------------------------------------------------
-   18) REGISTRO DEL SERVICE WORKER
-   Solo si el navegador lo soporta. Se registra "./sw.js"
-   relativo al index.html, así funciona dentro de subcarpetas.
-   ------------------------------------------------------------ */
-if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => {
-        navigator.serviceWorker
-            .register("./sw.js")
-            .catch((error) => console.error("No se pudo registrar el SW:", error));
-    });
-}
+       
