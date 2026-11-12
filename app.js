@@ -1488,6 +1488,7 @@ function inicializarAvisoConexion() {
     setInterval(() => actualizarAvisoConexion(), 30000);
 }
 
+
 /* ------------------------------------------------------------
    17) AVISO DE NUEVA VERSIÓN (SERVICE WORKER)
    Cuando un service worker nuevo se instala y está esperando
