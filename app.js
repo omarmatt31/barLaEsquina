@@ -1389,12 +1389,18 @@ function inicializarExportImport() {
    Muestra un banner discreto en la parte de arriba cuando el
    dispositivo pierde internet y lo oculta cuando vuelve.
    Los datos se siguen guardando en localStorage igual.
+
+   IMPORTANTE: navigator.onLine no es 100% confiable. En algunos
+   navegadores devuelve false durante los primeros segundos de
+   carga aunque haya internet, y el evento "online" nunca se
+   dispara si el navegador nunca detectó la caída. Por eso:
+   - Esperamos 2 segundos antes de mostrar el cartel.
+   - Verificamos con un ping real a un endpoint liviano.
+   - Sólo mostramos si ambos chequeos dan "sin conexión".
    ------------------------------------------------------------ */
 
-/**
- * Crea (si no existe) el contenedor del aviso de conexión.
- * @returns {HTMLElement}
- */
+let temporizadorAviso = null;
+
 function obtenerAvisoConexion() {
     let aviso = document.getElementById("aviso-conexion");
     if (aviso) return aviso;
@@ -1410,33 +1416,77 @@ function obtenerAvisoConexion() {
     return aviso;
 }
 
-/**
- * Muestra u oculta el aviso según el estado de conexión.
- * @param {boolean} enLinea - true si hay internet, false si no
- */
-function actualizarAvisoConexion(enLinea) {
+function mostrarAvisoConexion() {
     const aviso = obtenerAvisoConexion();
-    if (enLinea) {
-        aviso.classList.remove("aviso-conexion--visible");
-    } else {
-        aviso.classList.add("aviso-conexion--visible");
+    aviso.classList.add("aviso-conexion--visible");
+}
+
+function ocultarAvisoConexion() {
+    const aviso = document.getElementById("aviso-conexion");
+    if (aviso) aviso.classList.remove("aviso-conexion--visible");
+    clearTimeout(temporizadorAviso);
+}
+
+/**
+ * Verifica si hay internet real haciendo un fetch HEAD a un
+ * recurso liviano. Si falla o tarda más de 3s, asumimos offline.
+ * @returns {Promise<boolean>}
+ */
+async function hayInternetReal() {
+    if (navigator.onLine === false) return false;
+
+    try {
+        const controlador = new AbortController();
+        const timeout = setTimeout(() => controlador.abort(), 3000);
+
+        // Usamos un favicon de Google (liviano, CORS abierto)
+        const respuesta = await fetch(
+            "https://www.google.com/favicon.ico",
+            { method: "HEAD", mode: "no-cors", cache: "no-store", signal: controlador.signal }
+        );
+
+        clearTimeout(timeout);
+        // mode "no-cors" da respuesta opaca, pero si no lanzó, hay red
+        return true;
+    } catch (error) {
+        return false;
     }
 }
 
 /**
- * Conecta el aviso con navigator.onLine y los eventos online/offline.
+ * Actualiza el aviso con verificación real. Si el navegador
+ * cree que está offline, esperamos 2s y verificamos con ping
+ * antes de mostrar el cartel. Así evitamos falsos positivos.
  */
-function inicializarAvisoConexion() {
-    // Estado inicial (al abrir la app)
-    actualizarAvisoConexion(navigator.onLine);
+async function actualizarAvisoConexion() {
+    clearTimeout(temporizadorAviso);
 
-    // Cuando se recupera la conexión
-    window.addEventListener("online", () => actualizarAvisoConexion(true));
+    if (navigator.onLine === true) {
+        ocultarAvisoConexion();
+        return;
+    }
 
-    // Cuando se pierde la conexión
-    window.addEventListener("offline", () => actualizarAvisoConexion(false));
+    // navigator.onLine dice "false": esperamos 2s por si es transitorio
+    temporizadorAviso = setTimeout(async () => {
+        const hayRed = await hayInternetReal();
+        if (hayRed) {
+            ocultarAvisoConexion();
+        } else {
+            mostrarAvisoConexion();
+        }
+    }, 2000);
 }
 
+function inicializarAvisoConexion() {
+    // Estado inicial: damos 2s de gracia antes de mostrar el cartel
+    actualizarAvisoConexion();
+
+    window.addEventListener("online", () => actualizarAvisoConexion());
+    window.addEventListener("offline", () => actualizarAvisoConexion());
+
+    // Re-verificamos cada 30s por si el navegador no dispara eventos
+    setInterval(() => actualizarAvisoConexion(), 30000);
+}
 
 /* ------------------------------------------------------------
    17) AVISO DE NUEVA VERSIÓN (SERVICE WORKER)
